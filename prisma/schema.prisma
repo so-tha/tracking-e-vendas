@@ -1,0 +1,253 @@
+// Modelagem conforme ADR-027. Unicidades garantem idempotência no banco (ADR-003, ADR-015, ADR-026).
+generator client {
+  provider            = "prisma-client"
+  output              = "../src/generated/prisma"
+  // Necessário para rodar o build em Node ESM puro: imports internos do client precisam de extensão.
+  importFileExtension = "js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+enum WebhookEventStatus {
+  RECEIVED
+  PROCESSED
+  IGNORED_UNSUPPORTED
+  DUPLICATE_ORDER
+  FAILED
+}
+
+enum AttributionResult {
+  ATTRIBUTED
+  UNATTRIBUTED
+}
+
+enum Provider {
+  META
+  GOOGLE
+  TIKTOK
+  UTMIFY
+  REDTRACK
+}
+
+enum ConversionStatus {
+  PENDING
+  DELIVERED
+  FAILED_PERMANENT
+  SKIPPED
+}
+
+enum DeliveryAttemptStatus {
+  SUCCESS
+  TRANSIENT_FAILURE
+  PERMANENT_FAILURE
+}
+
+enum JobStatus {
+  PENDING
+  RUNNING
+  DONE
+  FAILED
+}
+
+/// Sessão de navegação. Campos canônicos seguem first-write-wins (ADR-014, ADR-022).
+model TrackingSession {
+  id              String   @id @default(uuid())
+  sessionId       String   @unique
+  /// Primeira URL vista (ADR-022).
+  pageUrl         String
+  /// Objeto atômico e imutável após o primeiro valor não vazio (ADR-022).
+  customFields    Json?
+  fbclid          String?
+  fbc             String?
+  fbp             String?
+  gclid           String?
+  gbraid          String?
+  wbraid          String?
+  ttclid          String?
+  ttp             String?
+  redtrackClickId String?
+  utmifyId        String?
+  /// E-mail normalizado (minúsculas, sem espaços).
+  customerEmail   String?
+  /// Telefone normalizado (E.164).
+  customerPhone   String?
+  firstSeenAt     DateTime @default(now())
+  lastSeenAt      DateTime @default(now())
+
+  revisions TrackingSessionRevision[]
+  snapshots AttributionSnapshot[]
+
+  @@index([fbclid])
+  @@index([fbc])
+  @@index([gclid])
+  @@index([gbraid])
+  @@index([wbraid])
+  @@index([ttclid])
+  @@index([redtrackClickId])
+  @@index([utmifyId])
+  @@index([customerEmail, firstSeenAt])
+}
+
+/// Histórico de cada envio de sessão: o que chegou, o que mudou e quais conflitos foram registrados.
+model TrackingSessionRevision {
+  id              String   @id @default(uuid())
+  sessionRefId    String
+  receivedAt      DateTime @default(now())
+  incomingPayload Json
+  appliedChanges  Json
+  conflicts       Json
+
+  session TrackingSession @relation(fields: [sessionRefId], references: [id])
+
+  @@index([sessionRefId, receivedAt])
+}
+
+/// Todo webhook recebido, inclusive eventos não suportados (ADR-005). eventId único.
+model WebhookEvent {
+  id           String             @id @default(uuid())
+  eventId      String             @unique
+  eventType    String
+  orderId      String
+  /// Payload original, preservado integralmente.
+  payload      Json
+  /// Instante da primeira recepção. Imutável (ADR-013).
+  receivedAt   DateTime           @default(now())
+  status       WebhookEventStatus @default(RECEIVED)
+  statusReason String?
+  processedAt  DateTime?
+
+  order Order?
+
+  @@index([orderId])
+}
+
+model Order {
+  id               String   @id @default(uuid())
+  orderId          String   @unique
+  webhookEventId   String   @unique
+  /// Menor unidade monetária da moeda (ADR-017). BigInt para não estourar 32 bits.
+  amountMinor      BigInt
+  currency         String
+  customerEmail    String?
+  /// sessionId como veio no webhook (pode não existir como sessão).
+  webhookSessionId String?
+  /// Herdado do evento original.
+  receivedAt       DateTime
+  createdAt        DateTime @default(now())
+
+  webhookEvent      WebhookEvent         @relation(fields: [webhookEventId], references: [id])
+  attribution       AttributionSnapshot?
+  conversions       Conversion[]
+  reprocessRequests ReprocessRequest[]
+}
+
+/// Resultado imutável da atribuição (ADR-010). Um por pedido.
+model AttributionSnapshot {
+  id                     String            @id @default(uuid())
+  orderRefId             String            @unique
+  result                 AttributionResult
+  /// 1 sessionId, 2 identificador próprio, 3 click ID, 4 cliente + janela. Nulo se não atribuída.
+  level                  Int?
+  method                 String?
+  sessionRefId           String?
+  customFields           Json?
+  /// WEBHOOK, SESSION ou NONE (ADR-011).
+  customFieldsSource     String
+  /// Mapa campo -> { value, source } com a origem de cada identificador (ADR-021).
+  identifiers            Json
+  affiliateCode          String?
+  affiliateCodeSource    String?
+  affiliateEvidenceLevel Int?
+  /// Lista de códigos de diagnóstico, por exemplo ATTRIBUTION_CONFLICT (ADR-012).
+  alerts                 Json
+  unattributedReason     String?
+  /// Passo a passo da decisão, para o suporte.
+  decisionTrace          Json
+  createdAt              DateTime          @default(now())
+
+  order   Order            @relation(fields: [orderRefId], references: [id])
+  session TrackingSession? @relation(fields: [sessionRefId], references: [id])
+}
+
+/// Uma conversão por pedido e provedor (ADR-009, ADR-016).
+model Conversion {
+  id                String           @id @default(uuid())
+  orderRefId        String
+  provider          Provider
+  status            ConversionStatus @default(PENDING)
+  skipReason        String?
+  /// orderId:provider:ORDER_PAID. Chave de deduplicação.
+  dedupKey          String           @unique
+  /// Último request enviado ao provedor (sem cabeçalhos nem segredos).
+  lastPayload       Json?
+  /// ConversionEvent congelado na criação. Todas as tentativas reconstroem o payload a partir dele (ADR-036).
+  eventSnapshot     Json?
+  /// Motivo da falha definitiva: RETRIES_EXHAUSTED, PROVIDER_REJECTED:<http>, EVENT_TOO_OLD, CONTRACT_ERROR:<código>.
+  failureReason     String?
+  attemptCount      Int              @default(0)
+  /// attemptCount no último reinício solicitado. O limite de tentativas conta a partir daqui (ADR-040).
+  attemptBudgetBase Int              @default(0)
+  deliveredAt       DateTime?
+  createdAt         DateTime         @default(now())
+  updatedAt         DateTime         @updatedAt
+
+  order    Order             @relation(fields: [orderRefId], references: [id])
+  attempts DeliveryAttempt[]
+
+  @@unique([orderRefId, provider])
+}
+
+model DeliveryAttempt {
+  id              String                @id @default(uuid())
+  conversionRefId String
+  attemptNumber   Int
+  status          DeliveryAttemptStatus
+  httpStatus      Int?
+  requestPayload  Json
+  responseBody    Json?
+  error           String?
+  startedAt       DateTime
+  finishedAt      DateTime
+
+  conversion Conversion @relation(fields: [conversionRefId], references: [id])
+
+  @@unique([conversionRefId, attemptNumber])
+}
+
+/// Fila em tabela (ADR-026). Consumo com FOR UPDATE SKIP LOCKED.
+model Job {
+  id        String    @id @default(uuid())
+  type      String
+  payload   Json
+  dedupKey  String    @unique
+  runAt     DateTime  @default(now())
+  status    JobStatus @default(PENDING)
+  attempts  Int       @default(0)
+  lockedAt  DateTime?
+  lockedBy  String?
+  lastError String?
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+
+  @@index([status, runAt])
+}
+
+/// Solicitações de reprocessamento. requestedBy vem da configuração da chave validada (ADR-024).
+model ReprocessRequest {
+  id                       String   @id @default(uuid())
+  /// orderId de negócio. Existe mesmo quando o pedido ainda não foi criado (ADR-040).
+  orderId                  String   @default("")
+  orderRefId               String?
+  requestedBy              String
+  requestedAt              DateTime @default(now())
+  includePermanentFailures Boolean  @default(false)
+  /// O que foi feito em cada evento e conversão.
+  summary                  Json?
+
+  order Order? @relation(fields: [orderRefId], references: [id])
+
+  @@index([orderRefId])
+  @@index([orderId])
+}
