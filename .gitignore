@@ -1,0 +1,13 @@
+node_modules/
+dist/
+src/generated/
+.env
+*.log
+coverage/
+
+# Material de estudo e diário de desenvolvimento: ficam só localmente (não fazem parte da entrega)
+docs/04-DIARIO-DE-DESENVOLVIMENTO.md
+docs/05-APRENDIZADOS.md
+
+# Versões completas e antigas dos documentos (só localmente)
+docs/historico/
