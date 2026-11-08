@@ -1,0 +1,408 @@
+{
+  "info": {
+    "name": "Tracking Hub",
+    "description": "Contrato da API, com os exemplos do documento original. Um teste automatizado executa cada requisição desta coleção contra a API e confere o status esperado.\n\nAntes de usar: defina a variável `apiKey` com a chave de um operador (SUPPORT_API_KEYS do seu .env). Ela fica vazia de propósito. Os pedidos de suporte só funcionam depois que o worker processou o webhook (alguns segundos).\n\nOrdem sugerida: Sessão, Webhook, Suporte (tracking), Suporte (reprocess).",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    {
+      "key": "baseUrl",
+      "value": "http://localhost:3333"
+    },
+    {
+      "key": "orderId",
+      "value": "ORD-001"
+    },
+    {
+      "key": "apiKey",
+      "value": ""
+    }
+  ],
+  "item": [
+    {
+      "name": "Saúde",
+      "item": [
+        {
+          "name": "GET /health",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/health",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "health"
+              ]
+            },
+            "description": ""
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status 200\", function () { pm.response.to.have.status(200); });"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Tracking",
+      "item": [
+        {
+          "name": "POST /tracking/sessions (exemplo do documento)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/tracking/sessions",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "tracking",
+                "sessions"
+              ]
+            },
+            "description": "201 na primeira vez e 200 nas seguintes (a sessão é complementada, nunca sobrescrita).",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"sessionId\": \"session_123\",\n  \"pageUrl\": \"https://checkout.exemplo.com/produto\",\n  \"customFields\": {\n    \"source\": \"facebook\",\n    \"campaign\": \"black-friday\",\n    \"content\": \"criativo-01\",\n    \"affiliateCode\": \"AFF-001\"\n  },\n  \"identifiers\": {\n    \"fbclid\": \"fb-click-id\",\n    \"fbc\": \"meta-fbc\",\n    \"fbp\": \"meta-fbp\",\n    \"gclid\": \"google-click-id\",\n    \"gbraid\": null,\n    \"wbraid\": null,\n    \"ttclid\": \"tiktok-click-id\",\n    \"ttp\": \"tiktok-cookie\",\n    \"redtrackClickId\": \"redtrack-click-id\",\n    \"utmifyId\": \"utmify-id\"\n  },\n  \"customer\": {\n    \"email\": \"cliente@email.com\",\n    \"phone\": \"+5511999999999\"\n  }\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status 201\", function () { pm.response.to.have.status(201); });"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Webhooks",
+      "item": [
+        {
+          "name": "POST /webhooks/orders (ORDER_PAID, exemplo do documento)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/webhooks/orders",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "webhooks",
+                "orders"
+              ]
+            },
+            "description": "202 accepted. Repetir o mesmo eventId responde duplicate, sem duplicar nada.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"eventId\": \"evt_123\",\n  \"event\": \"ORDER_PAID\",\n  \"orderId\": \"ORD-001\",\n  \"sessionId\": \"session_123\",\n  \"amount\": 25500,\n  \"currency\": \"USD\",\n  \"customer\": {\n    \"email\": \"cliente@email.com\"\n  },\n  \"customFields\": {\n    \"source\": \"facebook\",\n    \"campaign\": \"black-friday\",\n    \"content\": \"criativo-01\",\n    \"affiliateCode\": \"AFF-001\"\n  }\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status 202\", function () { pm.response.to.have.status(202); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "POST /webhooks/orders (com identifiers, extensão)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/webhooks/orders",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "webhooks",
+                "orders"
+              ]
+            },
+            "description": "",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"eventId\": \"evt_124\",\n  \"event\": \"ORDER_PAID\",\n  \"orderId\": \"ORD-002\",\n  \"amount\": 5000,\n  \"currency\": \"BRL\",\n  \"identifiers\": {\n    \"gclid\": \"google-click-id\"\n  }\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status 202\", function () { pm.response.to.have.status(202); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "POST /webhooks/orders (evento não suportado, ignorado)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/webhooks/orders",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "webhooks",
+                "orders"
+              ]
+            },
+            "description": "Registrado com o payload original e ignorado (ignored: true).",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"eventId\": \"evt_125\",\n  \"event\": \"ORDER_REFUNDED\",\n  \"orderId\": \"ORD-001\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status 202\", function () { pm.response.to.have.status(202); });"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Suporte",
+      "item": [
+        {
+          "name": "GET /support/orders/:orderId/tracking",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "X-API-Key",
+                "value": "{{apiKey}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/support/orders/{{orderId}}/tracking",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "support",
+                "orders",
+                "{{orderId}}",
+                "tracking"
+              ]
+            },
+            "description": "Exige X-API-Key. Responde: qual valor foi associado, de onde veio e exatamente o que foi enviado."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status 200\", function () { pm.response.to.have.status(200); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "GET /support/orders/:orderId/tracking (sem chave, deve dar 401)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/support/orders/{{orderId}}/tracking",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "support",
+                "orders",
+                "{{orderId}}",
+                "tracking"
+              ]
+            },
+            "description": ""
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status 401\", function () { pm.response.to.have.status(401); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "POST /support/orders/:orderId/reprocess",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "X-API-Key",
+                "value": "{{apiKey}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/support/orders/{{orderId}}/reprocess",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "support",
+                "orders",
+                "{{orderId}}",
+                "reprocess"
+              ]
+            },
+            "description": "Não reenvia o que já foi entregue. O responsável é o operador da chave, nunca um campo do corpo.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"includePermanentFailures\": false\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status 202\", function () { pm.response.to.have.status(202); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "POST /support/orders/:orderId/reprocess (reiniciar falhas permanentes)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "X-API-Key",
+                "value": "{{apiKey}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/support/orders/{{orderId}}/reprocess",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "support",
+                "orders",
+                "{{orderId}}",
+                "reprocess"
+              ]
+            },
+            "description": "Só reinicia falhas que repetir pode resolver. EVENT_TOO_OLD e erros de contrato não são reiniciados.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"includePermanentFailures\": true\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status 202\", function () { pm.response.to.have.status(202); });"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
