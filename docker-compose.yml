@@ -1,0 +1,68 @@
+# Execução local: PostgreSQL, migrations, API e worker.
+#   cp .env.example .env
+#   docker compose up --build
+# Portas configuráveis: DB_PORT (padrão 5432) e API_PORT (padrão 3333).
+
+x-app: &app
+  build:
+    context: .
+    target: runtime
+  image: tracking-hub:local
+  # Configuração vem do .env. A URL do banco abaixo aponta para o serviço "db" dentro da rede do Compose.
+  env_file: .env
+  environment:
+    NODE_ENV: production
+    PORT: "3333"
+    DATABASE_URL: postgresql://tracking:tracking@db:5432/tracking_hub
+  restart: unless-stopped
+  depends_on:
+    migrate:
+      condition: service_completed_successfully
+
+services:
+  db:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_USER: tracking
+      POSTGRES_PASSWORD: tracking
+      POSTGRES_DB: tracking_hub
+    ports:
+      - "${DB_PORT:-5432}:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./docker/init-test-db.sql:/docker-entrypoint-initdb.d/init-test-db.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U tracking -d tracking_hub"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  # Aplica as migrations e termina. API e worker só sobem depois que ele conclui com sucesso.
+  migrate:
+    build:
+      context: .
+      target: migrate
+    environment:
+      DATABASE_URL: postgresql://tracking:tracking@db:5432/tracking_hub
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: "no"
+
+  api:
+    <<: *app
+    ports:
+      - "${API_PORT:-3333}:3333"
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://localhost:3333/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  worker:
+    <<: *app
+    command: ["node", "dist/worker.js"]
+
+volumes:
+  pgdata:

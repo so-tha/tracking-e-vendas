@@ -1,0 +1,11 @@
+node_modules
+dist
+.env
+.git
+src/generated
+tests
+docs
+postman
+coverage
+*.md
+docker-compose.yml
